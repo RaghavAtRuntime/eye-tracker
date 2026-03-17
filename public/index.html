@@ -20,7 +20,7 @@
       cursor: pointer;
       transform: translate(-50%, -50%);
       transition: transform 0.15s ease, box-shadow 0.15s ease;
-      z-index: 9999;
+      z-index: 10001;
       box-shadow: 0 0 0 0 rgba(52,211,153,0.5);
     }
     .calib-dot:hover {
@@ -88,9 +88,19 @@
       display: none !important;
     }
 
+    /* Global gaze blip overlay — fixed over the entire viewport, visible in all states */
+    #global-gaze-canvas {
+      position: fixed;
+      top: 0;
+      left: 0;
+      pointer-events: none;
+      z-index: 9998;
+    }
+
     /* Toast */
     #toast {
       transition: opacity 0.4s ease;
+      z-index: 10000;
     }
 
     /* State sections */
@@ -230,10 +240,13 @@
     </div>
   </section>
 
+  <!-- Global gaze blip canvas — always visible regardless of app state -->
+  <canvas id="global-gaze-canvas"></canvas>
+
   <!-- ============================= TOAST ============================= -->
   <div id="toast"
     class="fixed bottom-6 left-1/2 -translate-x-1/2 opacity-0 pointer-events-none
-           px-5 py-2.5 rounded-xl bg-slate-700 text-slate-200 text-sm shadow-lg border border-slate-600 z-50">
+           px-5 py-2.5 rounded-xl bg-slate-700 text-slate-200 text-sm shadow-lg border border-slate-600">
   </div>
 
   <script src="vendor/webgazer.js"></script>
