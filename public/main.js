@@ -53,6 +53,8 @@ const uploadedImg         = document.getElementById('uploaded-img');
 const workspace           = document.getElementById('workspace');
 const gazeCanvas          = document.getElementById('gaze-canvas');
 const gazeCtx             = gazeCanvas.getContext('2d');
+const globalGazeCanvas    = document.getElementById('global-gaze-canvas');
+const globalGazeCtx       = globalGazeCanvas.getContext('2d');
 const clearBtn            = document.getElementById('clear-btn');
 const videoToggleBtn      = document.getElementById('video-toggle-btn');
 const videoToggleLabel    = document.getElementById('video-toggle-label');
@@ -288,32 +290,6 @@ function drawLoop() {
     gazeCtx.drawImage(heatmapCanvas, 0, 0);
   }
 
-  // Draw live blip
-  if (smoothX !== null && smoothY !== null && imgRect) {
-    const cx = smoothX - imgRect.left;
-    const cy = smoothY - imgRect.top;
-
-    // Only draw if gaze is within (or near) the image
-    if (cx > -BLIP_RADIUS && cx < gazeCanvas.width + BLIP_RADIUS &&
-        cy > -BLIP_RADIUS && cy < gazeCanvas.height + BLIP_RADIUS) {
-
-      const blip = gazeCtx.createRadialGradient(cx, cy, BLIP_INNER_RADIUS, cx, cy, BLIP_RADIUS);
-      blip.addColorStop(0,   'rgba(52,211,153,0.85)');
-      blip.addColorStop(0.3, 'rgba(52,211,153,0.45)');
-      blip.addColorStop(1,   'rgba(52,211,153,0)');
-      gazeCtx.beginPath();
-      gazeCtx.arc(cx, cy, BLIP_RADIUS, 0, Math.PI * 2);
-      gazeCtx.fillStyle = blip;
-      gazeCtx.fill();
-
-      // Centre dot
-      gazeCtx.beginPath();
-      gazeCtx.arc(cx, cy, BLIP_INNER_RADIUS, 0, Math.PI * 2);
-      gazeCtx.fillStyle = 'rgba(255,255,255,0.9)';
-      gazeCtx.fill();
-    }
-  }
-
   animFrameId = requestAnimationFrame(drawLoop);
 }
 
@@ -446,6 +422,47 @@ window.addEventListener('resize', () => {
     });
   }
 });
+
+/* ══════════════════════════════════════════════════════════════
+   GLOBAL GAZE BLIP (visible in all states — calibration, upload, tracking)
+   ══════════════════════════════════════════════════════════════ */
+
+/** Draw an emerald radial-gradient blip centred on (cx, cy) using the given context. */
+function drawBlipAt(ctx, cx, cy) {
+  const blip = ctx.createRadialGradient(cx, cy, BLIP_INNER_RADIUS, cx, cy, BLIP_RADIUS);
+  blip.addColorStop(0,   'rgba(52,211,153,0.85)');
+  blip.addColorStop(0.3, 'rgba(52,211,153,0.45)');
+  blip.addColorStop(1,   'rgba(52,211,153,0)');
+  ctx.beginPath();
+  ctx.arc(cx, cy, BLIP_RADIUS, 0, Math.PI * 2);
+  ctx.fillStyle = blip;
+  ctx.fill();
+
+  ctx.beginPath();
+  ctx.arc(cx, cy, BLIP_INNER_RADIUS, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(255,255,255,0.9)';
+  ctx.fill();
+}
+
+function resizeGlobalGazeCanvas() {
+  globalGazeCanvas.width  = window.innerWidth;
+  globalGazeCanvas.height = window.innerHeight;
+}
+
+resizeGlobalGazeCanvas();
+window.addEventListener('resize', resizeGlobalGazeCanvas);
+
+function drawGlobalBlip() {
+  globalGazeCtx.clearRect(0, 0, globalGazeCanvas.width, globalGazeCanvas.height);
+
+  if (smoothX !== null && smoothY !== null) {
+    drawBlipAt(globalGazeCtx, smoothX, smoothY);
+  }
+
+  requestAnimationFrame(drawGlobalBlip);
+}
+
+drawGlobalBlip();
 
 /* ══════════════════════════════════════════════════════════════
    BOOT
