@@ -290,6 +290,17 @@ function drawLoop() {
     gazeCtx.drawImage(heatmapCanvas, 0, 0);
   }
 
+  // Draw live gaze blip on top of the image
+  if (imgRect && smoothX !== null && smoothY !== null) {
+    const cx = smoothX - imgRect.left;
+    const cy = smoothY - imgRect.top;
+    // Only draw if the blip overlaps the canvas area
+    if (cx > -BLIP_RADIUS && cx < gazeCanvas.width + BLIP_RADIUS &&
+        cy > -BLIP_RADIUS && cy < gazeCanvas.height + BLIP_RADIUS) {
+      drawBlipAt(gazeCtx, cx, cy);
+    }
+  }
+
   animFrameId = requestAnimationFrame(drawLoop);
 }
 
@@ -424,7 +435,7 @@ window.addEventListener('resize', () => {
 });
 
 /* ══════════════════════════════════════════════════════════════
-   GLOBAL GAZE BLIP (visible in all states — calibration, upload, tracking)
+   GLOBAL GAZE BLIP (visible in calibration and upload states)
    ══════════════════════════════════════════════════════════════ */
 
 /** Draw an emerald radial-gradient blip centred on (cx, cy) using the given context. */
@@ -455,7 +466,9 @@ window.addEventListener('resize', resizeGlobalGazeCanvas);
 function drawGlobalBlip() {
   globalGazeCtx.clearRect(0, 0, globalGazeCanvas.width, globalGazeCanvas.height);
 
-  if (smoothX !== null && smoothY !== null) {
+  // In TRACKING state the blip is drawn directly on the image canvas; only
+  // draw the global overlay during calibration and upload states.
+  if (currentState !== AppState.TRACKING && smoothX !== null && smoothY !== null) {
     drawBlipAt(globalGazeCtx, smoothX, smoothY);
   }
 
