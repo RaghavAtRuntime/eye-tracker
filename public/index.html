@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Eye Tracker — Gaze Heatmap</title>
+  <link rel="stylesheet" href="vendor/tailwind.css" />
+  <style>
+    * { box-sizing: border-box; }
+    body { background-color: #0f172a; color: #e2e8f0; font-family: 'Inter', system-ui, sans-serif; }
+
+    /* Calibration dot */
+    .calib-dot {
+      position: fixed;
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: #34d399;
+      border: 2px solid #fff;
+      cursor: pointer;
+      transform: translate(-50%, -50%);
+      transition: transform 0.15s ease, box-shadow 0.15s ease;
+      z-index: 9999;
+      box-shadow: 0 0 0 0 rgba(52,211,153,0.5);
+    }
+    .calib-dot:hover {
+      transform: translate(-50%, -50%) scale(1.3);
+      box-shadow: 0 0 0 6px rgba(52,211,153,0.25);
+    }
+    .calib-dot.active {
+      background: #fff;
+      animation: pulse-dot 0.6s infinite alternate;
+    }
+    @keyframes pulse-dot {
+      from { box-shadow: 0 0 0 0 rgba(52,211,153,0.7); }
+      to   { box-shadow: 0 0 0 10px rgba(52,211,153,0); }
+    }
+
+    /* Drag-and-drop zone */
+    #drop-zone {
+      border: 2px dashed #475569;
+      transition: border-color 0.2s, background-color 0.2s;
+    }
+    #drop-zone.drag-over {
+      border-color: #34d399;
+      background-color: rgba(52,211,153,0.05);
+    }
+
+    /* Tracking workspace */
+    #workspace {
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    #uploaded-img {
+      max-width: 100%;
+      max-height: calc(100vh - 120px);
+      object-fit: contain;
+      display: block;
+      border-radius: 8px;
+    }
+    #gaze-canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      pointer-events: none;
+      border-radius: 8px;
+    }
+
+    /* Video preview (WebGazer) — hidden by default, toggled via JS */
+    #webgazerVideoContainer {
+      display: none;
+      position: fixed !important;
+      bottom: 16px !important;
+      right: 16px !important;
+      border-radius: 8px;
+      overflow: hidden;
+      z-index: 100;
+      border: 2px solid #334155;
+    }
+    #webgazerFaceOverlay, #webgazerFaceFeedbackBox {
+      display: none !important;
+    }
+
+    /* WebGazer prediction dot — hide it, we draw our own */
+    #webgazerGazeDot {
+      display: none !important;
+    }
+
+    /* Toast */
+    #toast {
+      transition: opacity 0.4s ease;
+    }
+
+    /* State sections */
+    .state-section { display: none; }
+    .state-section.active { display: flex; }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col">
+
+  <!-- Navigation Bar -->
+  <nav class="w-full bg-slate-800 border-b border-slate-700 px-6 py-3 flex items-center justify-between shrink-0">
+    <div class="flex items-center gap-3">
+      <svg class="w-7 h-7 text-emerald-400" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="3.5" />
+        <path d="M2 12C4.5 6.5 8.5 4 12 4s7.5 2.5 10 8c-2.5 5.5-6.5 8-10 8S4.5 17.5 2 12Z" />
+      </svg>
+      <span class="text-lg font-semibold tracking-tight">Eye Tracker</span>
+    </div>
+    <div class="flex items-center gap-4">
+      <!-- Video toggle (shown during tracking) -->
+      <button id="video-toggle-btn"
+        class="hidden text-sm text-slate-400 hover:text-emerald-400 transition-colors gap-2 items-center"
+        title="Toggle camera preview">
+        <svg class="w-4 h-4 inline" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path d="M15 10l4.553-2.5A1 1 0 0121 8.5v7a1 1 0 01-1.447.894L15 14M3 8a2 2 0 012-2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V8z"/>
+        </svg>
+        <span id="video-toggle-label">Show Camera</span>
+      </button>
+
+      <!-- State indicator badge -->
+      <span id="state-badge"
+        class="text-xs font-medium px-3 py-1 rounded-full bg-slate-700 text-slate-400">
+        Calibrating
+      </span>
+    </div>
+  </nav>
+
+  <!-- ============================= CALIBRATION SECTION ============================= -->
+  <section id="section-calibration"
+    class="state-section active flex-col items-center justify-center flex-1 gap-6 px-6 py-10">
+
+    <div class="max-w-md text-center">
+      <h1 class="text-2xl font-bold text-white mb-2">Calibrate Your Gaze</h1>
+      <p class="text-slate-400 text-sm leading-relaxed">
+        Click on each <span class="text-emerald-400 font-medium">green dot</span> that appears on screen.
+        Click each dot <span class="text-emerald-400 font-medium">5 times</span> to register it.
+        Keep your head still and look directly at the dot as you click.
+      </p>
+    </div>
+
+    <div class="flex items-center gap-4 mt-2">
+      <button id="start-calibration-btn"
+        class="px-6 py-2.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-900 font-semibold text-sm transition-colors">
+        Start Calibration
+      </button>
+    </div>
+
+    <!-- Progress bar -->
+    <div id="calib-progress-wrap" class="hidden w-full max-w-sm">
+      <div class="flex justify-between text-xs text-slate-500 mb-1">
+        <span>Progress</span>
+        <span id="calib-progress-label">0 / 9 dots</span>
+      </div>
+      <div class="h-2 bg-slate-700 rounded-full overflow-hidden">
+        <div id="calib-progress-bar"
+          class="h-full bg-emerald-500 rounded-full transition-all duration-300"
+          style="width: 0%"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============================= UPLOAD SECTION ============================= -->
+  <section id="section-upload"
+    class="state-section flex-col items-center justify-center flex-1 gap-6 px-6 py-10">
+
+    <div class="max-w-md text-center">
+      <h1 class="text-2xl font-bold text-white mb-2">Upload an Image</h1>
+      <p class="text-slate-400 text-sm">
+        Drop a JPG or PNG image to start tracking your gaze over it.
+      </p>
+    </div>
+
+    <!-- Drop Zone -->
+    <div id="drop-zone"
+      class="w-full max-w-lg h-56 rounded-xl flex flex-col items-center justify-center gap-4 cursor-pointer select-none">
+      <svg class="w-12 h-12 text-slate-600" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+        <path d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M12 4v12m-4-4l4 4 4-4"/>
+      </svg>
+      <div class="text-center">
+        <p class="text-slate-400 text-sm font-medium">Drag &amp; drop image here</p>
+        <p class="text-slate-600 text-xs mt-1">or</p>
+        <label class="mt-2 inline-block cursor-pointer text-sm text-emerald-400 hover:text-emerald-300 font-medium transition-colors">
+          Browse file
+          <input id="file-input" type="file" accept="image/jpeg,image/png" class="hidden" />
+        </label>
+      </div>
+    </div>
+
+    <p class="text-slate-600 text-xs">Supports JPG / PNG</p>
+  </section>
+
+  <!-- ============================= TRACKING SECTION ============================= -->
+  <section id="section-tracking"
+    class="state-section flex-col items-center flex-1 gap-4 px-6 py-4">
+
+    <!-- Toolbar -->
+    <div class="w-full flex items-center justify-between shrink-0">
+      <div class="flex items-center gap-3">
+        <!-- Clear button -->
+        <button id="clear-btn"
+          class="flex items-center gap-2 text-sm px-4 py-2 rounded-lg border border-slate-700 text-slate-400
+                 hover:border-rose-500 hover:text-rose-400 transition-colors">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M1 7h22M8 7V5a1 1 0 011-1h6a1 1 0 011 1v2"/>
+          </svg>
+          Clear &amp; Reset
+        </button>
+      </div>
+
+      <!-- Hotkey legend -->
+      <div class="flex items-center gap-4 text-xs text-slate-500">
+        <span>
+          Press <kbd class="px-1.5 py-0.5 rounded bg-slate-700 text-slate-300 font-mono text-xs">R</kbd>
+          to recalibrate gaze
+        </span>
+        <span>
+          Press <kbd class="px-1.5 py-0.5 rounded bg-slate-700 text-slate-300 font-mono text-xs">C</kbd>
+          to clear heatmap
+        </span>
+      </div>
+    </div>
+
+    <!-- Workspace: image + canvas overlay -->
+    <div id="workspace" class="flex-1 w-full">
+      <img id="uploaded-img" src="" alt="Tracked image" />
+      <canvas id="gaze-canvas"></canvas>
+    </div>
+  </section>
+
+  <!-- ============================= TOAST ============================= -->
+  <div id="toast"
+    class="fixed bottom-6 left-1/2 -translate-x-1/2 opacity-0 pointer-events-none
+           px-5 py-2.5 rounded-xl bg-slate-700 text-slate-200 text-sm shadow-lg border border-slate-600 z-50">
+  </div>
+
+  <script src="vendor/webgazer.js"></script>
+  <script src="main.js"></script>
+</body>
+</html>

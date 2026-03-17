@@ -1,0 +1,18 @@
+{
+  "name": "eye-tracker",
+  "version": "1.0.0",
+  "description": "Real-time eye-tracking heatmap visualization using WebGazer.js",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "build": "node scripts/build.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2"
+  },
+  "devDependencies": {
+    "@tailwindcss/cli": "^4.2.1",
+    "tailwindcss": "^4.2.1",
+    "webgazer": "^3.5.3"
+  }
+}
