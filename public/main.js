@@ -50,6 +50,7 @@ const calibProgressLabel  = document.getElementById('calib-progress-label');
 const dropZone            = document.getElementById('drop-zone');
 const fileInput           = document.getElementById('file-input');
 const uploadedImg         = document.getElementById('uploaded-img');
+const workspace           = document.getElementById('workspace');
 const gazeCanvas          = document.getElementById('gaze-canvas');
 const gazeCtx             = gazeCanvas.getContext('2d');
 const clearBtn            = document.getElementById('clear-btn');
@@ -263,6 +264,11 @@ function initTrackingCanvas() {
     gazeCanvas.style.width  = `${imgRect.width}px`;
     gazeCanvas.style.height = `${imgRect.height}px`;
 
+    // Align canvas with the image inside the (centred) workspace
+    const workspaceRect = workspace.getBoundingClientRect();
+    gazeCanvas.style.left = `${imgRect.left - workspaceRect.left}px`;
+    gazeCanvas.style.top  = `${imgRect.top  - workspaceRect.top}px`;
+
     // Off-screen heatmap accumulation canvas
     heatmapCanvas = document.createElement('canvas');
     heatmapCanvas.width  = imgRect.width;
@@ -422,6 +428,12 @@ window.addEventListener('resize', () => {
       gazeCanvas.height = imgRect.height;
       gazeCanvas.style.width  = `${imgRect.width}px`;
       gazeCanvas.style.height = `${imgRect.height}px`;
+
+      // Re-align canvas with the (possibly re-centred) image
+      const workspaceRect = workspace.getBoundingClientRect();
+      gazeCanvas.style.left = `${imgRect.left - workspaceRect.left}px`;
+      gazeCanvas.style.top  = `${imgRect.top  - workspaceRect.top}px`;
+
       if (heatmapCanvas) {
         const newHM = document.createElement('canvas');
         newHM.width  = imgRect.width;
