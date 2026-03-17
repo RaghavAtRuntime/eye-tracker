@@ -20,16 +20,17 @@ let calibDotIndex = 0;
 let calibClickCount = 0;
 let calibDotEl = null;
 
-/* ─── Gaze smoothing (moving average) ───────────────────────── */
-const SMOOTH_WINDOW = 10;
-const gazeBuffer = [];
+/* ─── Gaze smoothing (LERP) ──────────────────────────────────── */
+const LERP_FACTOR = 0.12;   // higher = more responsive, lower = smoother
 let smoothX = null;
 let smoothY = null;
 
 /* ─── Canvas / image tracking ───────────────────────────────── */
 const BLIP_RADIUS = 40;
 const BLIP_INNER_RADIUS = 6;
-const HEATMAP_ALPHA = 0.06;   // alpha of each heatmap stamp
+const HEATMAP_ALPHA = 0.04;   // alpha of each heatmap stamp
+const HEATMAP_DECAY = 0.015;  // opacity removed from heatmap per frame (fades to ~36% after ~60 frames)
+const HEATMAP_RADIUS_MULTIPLIER = 1.2; // heatmap stamps are slightly wider than the visual blip
 let imgRect = null;            // bounding rect of the uploaded image in the viewport
 let animFrameId = null;
 let heatmapCanvas = null;      // off-screen canvas for accumulated heatmap
@@ -203,13 +204,14 @@ async function initWebGazer() {
 function onGaze(data) {
   if (!data) return;
 
-  gazeBuffer.push({ x: data.x, y: data.y });
-  if (gazeBuffer.length > SMOOTH_WINDOW) gazeBuffer.shift();
-
-  const sumX = gazeBuffer.reduce((s, p) => s + p.x, 0);
-  const sumY = gazeBuffer.reduce((s, p) => s + p.y, 0);
-  smoothX = sumX / gazeBuffer.length;
-  smoothY = sumY / gazeBuffer.length;
+  // LERP: smoothly interpolate toward the new raw gaze point each frame
+  if (smoothX === null) {
+    smoothX = data.x;
+    smoothY = data.y;
+  } else {
+    smoothX += (data.x - smoothX) * LERP_FACTOR;
+    smoothY += (data.y - smoothY) * LERP_FACTOR;
+  }
 
   // Stamp heatmap if we're in tracking mode and have a loaded image
   if (currentState === AppState.TRACKING && heatmapCtx && imgRect) {
@@ -285,8 +287,14 @@ function initTrackingCanvas() {
 function drawLoop() {
   gazeCtx.clearRect(0, 0, gazeCanvas.width, gazeCanvas.height);
 
-  // Draw accumulated heatmap
+  // Decay and draw accumulated heatmap
   if (heatmapCanvas) {
+    // Fade old stamps each frame so the heatmap decays over time
+    heatmapCtx.globalCompositeOperation = 'destination-out';
+    heatmapCtx.fillStyle = `rgba(0,0,0,${HEATMAP_DECAY})`;
+    heatmapCtx.fillRect(0, 0, heatmapCanvas.width, heatmapCanvas.height);
+    heatmapCtx.globalCompositeOperation = 'source-over';
+
     gazeCtx.drawImage(heatmapCanvas, 0, 0);
   }
 
@@ -311,7 +319,7 @@ function stampHeatmap(wx, wy) {
   const cy = wy - imgRect.top;
   if (cx < 0 || cx > heatmapCanvas.width || cy < 0 || cy > heatmapCanvas.height) return;
 
-  const r = gazeBuffer.length > 0 ? BLIP_RADIUS * 1.2 : BLIP_RADIUS;
+  const r = BLIP_RADIUS * HEATMAP_RADIUS_MULTIPLIER;
   const grad = heatmapCtx.createRadialGradient(cx, cy, 0, cx, cy, r);
   grad.addColorStop(0,   `rgba(52,211,153,${HEATMAP_ALPHA * 2})`);
   grad.addColorStop(0.4, `rgba(52,211,153,${HEATMAP_ALPHA})`);
@@ -337,7 +345,6 @@ function clearSession() {
   heatmapCtx = null;
 
   // Reset gaze smoothing
-  gazeBuffer.length = 0;
   smoothX = null;
   smoothY = null;
   imgRect = null;
@@ -378,7 +385,6 @@ document.addEventListener('keydown', (e) => {
     if (currentState === AppState.TRACKING || currentState === AppState.UPLOAD) {
       // Reset WebGazer regression
       webgazer.clearData();
-      gazeBuffer.length = 0;
       smoothX = null; smoothY = null;
 
       // Go back to calibration UI
