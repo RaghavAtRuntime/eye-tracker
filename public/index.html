@@ -68,12 +68,19 @@
       border-radius: 8px;
     }
 
-    /* Video preview (WebGazer) — hidden by default, toggled via JS */
+    /* Video preview (WebGazer) — hidden by default, toggled via JS.
+       WebGazer injects inline top:0/left:0 on the container, so we
+       override with !important to keep it in the bottom-right corner.
+       pointer-events:none ensures the container never intercepts clicks
+       on UI elements behind it (e.g. Clear & Reset, Video toggle). */
     #webgazerVideoContainer {
       display: none;
       position: fixed !important;
+      top: auto !important;
+      left: auto !important;
       bottom: 16px !important;
       right: 16px !important;
+      pointer-events: none;
       border-radius: 8px;
       overflow: hidden;
       z-index: 100;
