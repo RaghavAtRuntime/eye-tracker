@@ -46,6 +46,16 @@
       background-color: rgba(52,211,153,0.05);
     }
 
+    /* Draw mode recording indicator */
+    @keyframes record-pulse {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: 0.25; }
+    }
+    #draw-toggle-btn.recording .record-dot {
+      background-color: #f87171;
+      animation: record-pulse 1s ease-in-out infinite;
+    }
+
     /* Tracking workspace */
     #workspace {
       position: relative;
@@ -225,17 +235,43 @@
           </svg>
           Clear &amp; Reset
         </button>
+
+        <!-- Mode Toggle -->
+        <div class="flex items-center gap-0.5 bg-slate-900 rounded-lg p-1 border border-slate-700">
+          <button id="mode-heatmap-btn"
+            class="px-3 py-1.5 rounded-md text-xs font-medium transition-colors
+                   bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+            Heatmap
+          </button>
+          <button id="mode-draw-btn"
+            class="px-3 py-1.5 rounded-md text-xs font-medium transition-colors
+                   text-slate-400 hover:text-slate-200">
+            Draw
+          </button>
+        </div>
+
+        <!-- Draw Recording Toggle (visible only in Draw mode) -->
+        <button id="draw-toggle-btn"
+          class="hidden items-center gap-2 text-sm px-4 py-2 rounded-lg border border-emerald-700
+                 text-emerald-400 hover:bg-emerald-900/30 transition-colors">
+          <span class="record-dot inline-block w-2 h-2 rounded-full bg-current"></span>
+          <span id="draw-toggle-label">Start Drawing</span>
+        </button>
       </div>
 
       <!-- Hotkey legend -->
       <div class="flex items-center gap-4 text-xs text-slate-500">
         <span>
           Press <kbd class="px-1.5 py-0.5 rounded bg-slate-700 text-slate-300 font-mono text-xs">R</kbd>
-          to recalibrate gaze
+          to recalibrate
         </span>
         <span>
           Press <kbd class="px-1.5 py-0.5 rounded bg-slate-700 text-slate-300 font-mono text-xs">C</kbd>
-          to clear heatmap
+          to clear
+        </span>
+        <span id="draw-hotkey-hint" class="hidden">
+          Press <kbd class="px-1.5 py-0.5 rounded bg-slate-700 text-slate-300 font-mono text-xs">D</kbd>
+          to toggle drawing
         </span>
       </div>
     </div>

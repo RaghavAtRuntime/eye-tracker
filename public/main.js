@@ -8,6 +8,16 @@
 const AppState = Object.freeze({ CALIBRATION: 'calibration', UPLOAD: 'upload', TRACKING: 'tracking' });
 let currentState = AppState.CALIBRATION;
 
+/* ─── Tracking mode (heatmap vs. draw) ──────────────────────── */
+const TrackingMode = Object.freeze({ HEATMAP: 'heatmap', DRAW: 'draw' });
+let trackingMode = TrackingMode.HEATMAP;
+
+/* ─── Draw mode state ────────────────────────────────────────── */
+const DRAW_LINE_WIDTH  = 3;    // stroke width in canvas pixels
+const DRAW_MIN_DIST    = 5;    // minimum px distance between recorded gaze points
+let drawStrokes   = [];        // array of completed strokes; each stroke = [{x,y}, …]
+let currentStroke = null;      // stroke being actively recorded (null = not recording)
+
 /* ─── Calibration config ─────────────────────────────────────── */
 // 9-point grid (relative to viewport), each clicked CLICKS_PER_DOT times
 const CALIB_GRID = [
@@ -60,6 +70,11 @@ const clearBtn            = document.getElementById('clear-btn');
 const videoToggleBtn      = document.getElementById('video-toggle-btn');
 const videoToggleLabel    = document.getElementById('video-toggle-label');
 const toast               = document.getElementById('toast');
+const modeHeatmapBtn      = document.getElementById('mode-heatmap-btn');
+const modeDrawBtn         = document.getElementById('mode-draw-btn');
+const drawToggleBtn       = document.getElementById('draw-toggle-btn');
+const drawToggleLabel     = document.getElementById('draw-toggle-label');
+const drawHotkeyHint      = document.getElementById('draw-hotkey-hint');
 
 /* ══════════════════════════════════════════════════════════════
    STATE TRANSITIONS
@@ -213,9 +228,20 @@ function onGaze(data) {
     smoothY += (data.y - smoothY) * LERP_FACTOR;
   }
 
-  // Stamp heatmap if we're in tracking mode and have a loaded image
-  if (currentState === AppState.TRACKING && heatmapCtx && imgRect) {
-    stampHeatmap(smoothX, smoothY);
+  if (currentState === AppState.TRACKING && imgRect) {
+    if (trackingMode === TrackingMode.HEATMAP && heatmapCtx) {
+      stampHeatmap(smoothX, smoothY);
+    } else if (trackingMode === TrackingMode.DRAW && currentStroke !== null) {
+      // Record gaze point for the active draw stroke
+      const cx = smoothX - imgRect.left;
+      const cy = smoothY - imgRect.top;
+      if (cx >= 0 && cx <= gazeCanvas.width && cy >= 0 && cy <= gazeCanvas.height) {
+        const last = currentStroke[currentStroke.length - 1];
+        if (!last || Math.hypot(cx - last.x, cy - last.y) >= DRAW_MIN_DIST) {
+          currentStroke.push({ x: cx, y: cy });
+        }
+      }
+    }
   }
 }
 
@@ -259,6 +285,10 @@ fileInput.addEventListener('change', () => handleFile(fileInput.files[0]));
    TRACKING CANVAS
    ══════════════════════════════════════════════════════════════ */
 function initTrackingCanvas() {
+  // Reset draw state for the new session
+  drawStrokes = [];
+  currentStroke = null;
+
   // Use a small delay to let the image render and layout settle
   requestAnimationFrame(() => {
     imgRect = uploadedImg.getBoundingClientRect();
@@ -287,15 +317,19 @@ function initTrackingCanvas() {
 function drawLoop() {
   gazeCtx.clearRect(0, 0, gazeCanvas.width, gazeCanvas.height);
 
-  // Decay and draw accumulated heatmap
-  if (heatmapCanvas) {
-    // Fade old stamps each frame so the heatmap decays over time
-    heatmapCtx.globalCompositeOperation = 'destination-out';
-    heatmapCtx.fillStyle = `rgba(0,0,0,${HEATMAP_DECAY})`;
-    heatmapCtx.fillRect(0, 0, heatmapCanvas.width, heatmapCanvas.height);
-    heatmapCtx.globalCompositeOperation = 'source-over';
+  if (trackingMode === TrackingMode.HEATMAP) {
+    // Decay and draw accumulated heatmap
+    if (heatmapCanvas) {
+      // Fade old stamps each frame so the heatmap decays over time
+      heatmapCtx.globalCompositeOperation = 'destination-out';
+      heatmapCtx.fillStyle = `rgba(0,0,0,${HEATMAP_DECAY})`;
+      heatmapCtx.fillRect(0, 0, heatmapCanvas.width, heatmapCanvas.height);
+      heatmapCtx.globalCompositeOperation = 'source-over';
 
-    gazeCtx.drawImage(heatmapCanvas, 0, 0);
+      gazeCtx.drawImage(heatmapCanvas, 0, 0);
+    }
+  } else if (trackingMode === TrackingMode.DRAW) {
+    renderDrawStrokes(gazeCtx);
   }
 
   // Draw live gaze blip on top of the image
@@ -310,6 +344,26 @@ function drawLoop() {
   }
 
   animFrameId = requestAnimationFrame(drawLoop);
+}
+
+/** Render all completed strokes plus the current in-progress stroke onto ctx. */
+function renderDrawStrokes(ctx) {
+  const allStrokes = currentStroke ? [...drawStrokes, currentStroke] : drawStrokes;
+  ctx.save();
+  ctx.strokeStyle = 'rgba(52,211,153,0.85)';
+  ctx.lineWidth   = DRAW_LINE_WIDTH;
+  ctx.lineCap     = 'round';
+  ctx.lineJoin    = 'round';
+  for (const stroke of allStrokes) {
+    if (stroke.length < 2) continue;
+    ctx.beginPath();
+    ctx.moveTo(stroke[0].x, stroke[0].y);
+    for (let i = 1; i < stroke.length; i++) {
+      ctx.lineTo(stroke[i].x, stroke[i].y);
+    }
+    ctx.stroke();
+  }
+  ctx.restore();
 }
 
 /** Stamp a semi-transparent blip onto the persistent heatmap canvas */
@@ -331,6 +385,78 @@ function stampHeatmap(wx, wy) {
 }
 
 /* ══════════════════════════════════════════════════════════════
+   DRAW MODE
+   ══════════════════════════════════════════════════════════════ */
+
+/** Switch between Heatmap and Draw tracking modes. */
+function setTrackingMode(mode) {
+  // Stop any active drawing when leaving Draw mode
+  if (trackingMode === TrackingMode.DRAW && mode !== TrackingMode.DRAW) {
+    stopDrawing();
+  }
+  trackingMode = mode;
+
+  const isHeatmap = mode === TrackingMode.HEATMAP;
+
+  // Active tab: emerald tinted bg + border; inactive: muted text only
+  modeHeatmapBtn.className = isHeatmap
+    ? 'px-3 py-1.5 rounded-md text-xs font-medium transition-colors bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+    : 'px-3 py-1.5 rounded-md text-xs font-medium transition-colors text-slate-400 hover:text-slate-200';
+  modeDrawBtn.className = !isHeatmap
+    ? 'px-3 py-1.5 rounded-md text-xs font-medium transition-colors bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+    : 'px-3 py-1.5 rounded-md text-xs font-medium transition-colors text-slate-400 hover:text-slate-200';
+
+  // Show/hide Draw-specific controls
+  drawToggleBtn.classList.toggle('hidden', isHeatmap);
+  drawToggleBtn.classList.toggle('flex', !isHeatmap);
+  drawHotkeyHint.classList.toggle('hidden', isHeatmap);
+}
+
+/** Begin recording a new gaze stroke. */
+function startDrawing() {
+  currentStroke = [];
+  drawToggleLabel.textContent = 'Stop Drawing';
+  drawToggleBtn.classList.add('recording');
+  drawToggleBtn.classList.remove('border-emerald-700', 'text-emerald-400', 'hover:bg-emerald-900/30');
+  drawToggleBtn.classList.add('border-rose-700', 'text-rose-400', 'hover:bg-rose-900/30');
+  showToast('🔴 Recording gaze path — look to draw!');
+}
+
+/** Reset the draw toggle button to its idle (not-recording) appearance. */
+function resetDrawButtonUI() {
+  drawToggleLabel.textContent = 'Start Drawing';
+  drawToggleBtn.classList.remove('recording', 'border-rose-700', 'text-rose-400', 'hover:bg-rose-900/30');
+  drawToggleBtn.classList.add('border-emerald-700', 'text-emerald-400', 'hover:bg-emerald-900/30');
+}
+
+/** Stop recording; save current stroke if it has enough points. */
+function stopDrawing() {
+  if (currentStroke && currentStroke.length >= 2) {
+    drawStrokes.push(currentStroke);
+  }
+  currentStroke = null;
+  if (drawToggleLabel) resetDrawButtonUI();
+}
+
+/** Toggle recording on/off. */
+function toggleDrawing() {
+  if (currentStroke === null) {
+    startDrawing();
+  } else {
+    stopDrawing();
+    showToast('⏹ Stroke saved.');
+  }
+}
+
+/** Clear all draw strokes and stop any active recording. */
+function clearDrawing() {
+  drawStrokes = [];
+  currentStroke = null;
+  if (drawToggleLabel) resetDrawButtonUI();
+  showToast('🧹 Drawing cleared.');
+}
+
+/* ══════════════════════════════════════════════════════════════
    CLEAR / RESET
    ══════════════════════════════════════════════════════════════ */
 function clearSession() {
@@ -344,6 +470,10 @@ function clearSession() {
   heatmapCanvas = null;
   heatmapCtx = null;
 
+  // Reset draw state
+  drawStrokes = [];
+  currentStroke = null;
+
   // Reset gaze smoothing
   smoothX = null;
   smoothY = null;
@@ -352,6 +482,9 @@ function clearSession() {
   // Reset image
   uploadedImg.src = '';
   fileInput.value = '';
+
+  // Reset tracking mode to heatmap for the next session
+  trackingMode = TrackingMode.HEATMAP;
 
   setState(AppState.UPLOAD);
   showToast('🔄 Cleared — drop a new image to continue.');
@@ -400,11 +533,22 @@ document.addEventListener('keydown', (e) => {
     }
   }
 
-  // C → clear heatmap (keep image)
+  // C → clear heatmap (Heatmap mode) or drawing (Draw mode)
   if (e.key === 'c' || e.key === 'C') {
-    if (currentState === AppState.TRACKING && heatmapCtx) {
-      heatmapCtx.clearRect(0, 0, heatmapCanvas.width, heatmapCanvas.height);
-      showToast('🧹 Heatmap cleared.');
+    if (currentState === AppState.TRACKING) {
+      if (trackingMode === TrackingMode.HEATMAP && heatmapCtx) {
+        heatmapCtx.clearRect(0, 0, heatmapCanvas.width, heatmapCanvas.height);
+        showToast('🧹 Heatmap cleared.');
+      } else if (trackingMode === TrackingMode.DRAW) {
+        clearDrawing();
+      }
+    }
+  }
+
+  // D → toggle draw recording (Draw mode only)
+  if (e.key === 'd' || e.key === 'D') {
+    if (currentState === AppState.TRACKING && trackingMode === TrackingMode.DRAW) {
+      toggleDrawing();
     }
   }
 });
@@ -487,6 +631,16 @@ drawGlobalBlip();
    BOOT
    ══════════════════════════════════════════════════════════════ */
 startCalibBtn.addEventListener('click', startCalibration);
+
+modeHeatmapBtn.addEventListener('click', () => {
+  if (currentState === AppState.TRACKING) setTrackingMode(TrackingMode.HEATMAP);
+});
+modeDrawBtn.addEventListener('click', () => {
+  if (currentState === AppState.TRACKING) setTrackingMode(TrackingMode.DRAW);
+});
+drawToggleBtn.addEventListener('click', () => {
+  if (currentState === AppState.TRACKING) toggleDrawing();
+});
 
 // Start WebGazer immediately so camera permission is requested early
 initWebGazer();
